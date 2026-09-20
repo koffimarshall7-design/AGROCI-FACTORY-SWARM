@@ -1,0 +1,16 @@
+{
+  "mon-premier-programme": {
+    "platform": "bugcrowd",
+    "url": "https://bugcrowd.com/mon-programme",
+    "in_scope": [
+      "example.com",
+      "*.example.com"
+    ],
+    "out_scope": [
+      "blog.example.com"
+    ],
+    "max_severity": "critical",
+    "offers_bounties": true,
+    "notes": "Respecter le scope strict. Pas de DoS."
+  }
+}

@@ -1,0 +1,4 @@
+# Liste de TES buckets cloud a verifier (un par ligne)
+# Exemple (decommenter si tu as ces buckets) :
+# mon-bucket-perso
+# mon-backup-prive

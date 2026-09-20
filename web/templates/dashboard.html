@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pentest-Avance Dashboard</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0d1117; color: #c9d1d9; padding: 20px;
+    min-height: 100vh;
+  }
+  h1 { color: #58a6ff; margin-bottom: 20px; font-size: 1.6em; }
+  h2 { color: #8b949e; font-size: 1em; margin: 20px 0 10px 0;
+       text-transform: uppercase; letter-spacing: 1px; }
+  .container { max-width: 1200px; margin: 0 auto; }
+  .card {
+    background: #161b22; border: 1px solid #30363d;
+    border-radius: 8px; padding: 16px; margin-bottom: 16px;
+  }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+  input, select, button {
+    background: #0d1117; color: #c9d1d9; border: 1px solid #30363d;
+    border-radius: 6px; padding: 10px 12px; font-size: 1em;
+    width: 100%; margin-bottom: 8px;
+  }
+  button {
+    background: #238636; color: white; border: none;
+    cursor: pointer; font-weight: bold;
+  }
+  button:hover { background: #2ea043; }
+  button:disabled { background: #30363d; color: #8b949e; cursor: not-allowed; }
+  .status {
+    display: inline-block; padding: 4px 10px; border-radius: 12px;
+    font-size: 0.85em; font-weight: bold;
+  }
+  .status.idle { background: #30363d; color: #8b949e; }
+  .status.running { background: #1f6feb; color: white; animation: pulse 1.5s infinite; }
+  .status.error { background: #da3633; color: white; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+  .phase { padding: 8px 12px; margin: 4px 0; border-radius: 4px;
+           background: #21262d; font-size: 0.9em; }
+  .phase.done { background: #033a16; color: #3fb950; }
+  .phase.active { background: #1f6feb22; color: #58a6ff; border-left: 3px solid #58a6ff; }
+  .finding {
+    padding: 8px 12px; margin: 4px 0; border-left: 3px solid #da3633;
+    background: #1c2128; font-size: 0.9em;
+  }
+  .finding.critical { border-color: #da3633; }
+  .finding.high { border-color: #e67e22; }
+  .finding.medium { border-color: #f39c12; }
+  .finding.low { border-color: #3498db; }
+  .log-line {
+    padding: 4px 8px; margin: 2px 0; font-family: monospace;
+    font-size: 0.85em; color: #8b949e;
+    border-left: 2px solid #30363d; padding-left: 10px;
+  }
+  .log-line.err { color: #f85149; border-color: #f85149; }
+  .log-line.ok { color: #3fb950; border-color: #3fb950; }
+  #events { max-height: 400px; overflow-y: auto; }
+  #reports-list .report-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid #21262d;
+  }
+  .report-item a { color: #58a6ff; text-decoration: none; }
+  .report-item a:hover { text-decoration: underline; }
+  .score {
+    font-size: 3em; font-weight: bold; text-align: center;
+    padding: 10px;
+  }
+  .score.good { color: #3fb950; }
+  .score.mid { color: #f39c12; }
+  .score.bad { color: #f85149; }
+  .stat { display: flex; justify-content: space-between;
+          padding: 6px 0; border-bottom: 1px solid #21262d; }
+  .stat:last-child { border-bottom: none; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>🛡️ Pentest-Avance — Dashboard</h1>
+  <div class="card">
+    <span class="status idle" id="status-badge">Idle</span>
+    <span id="status-text" style="margin-left: 10px; color: #8b949e;"></span>
+  </div>
+
+  <div class="grid">
+    <div>
+      <h2>🚀 Lancer un scan</h2>
+      <div class="card">
+        <input id="target" placeholder="Cible (URL / IP / domaine)" />
+        <input id="objective" placeholder="Objectif (defaut: Audit complet)" />
+        <select id="mode">
+          <option value="1">Mode 1 — Test libre (ta responsabilite)</option>
+          <option value="2">Mode 2 — Bug bounty strict (verifie scope)</option>
+        </select>
+        <button id="btn-scan">▶ Lancer le scan</button>
+        <div id="scan-error" style="color: #f85149; font-size: 0.9em;"></div>
+      </div>
+
+      <h2>📊 Statistiques</h2>
+      <div class="card" id="stats">
+        <div class="stat"><span>Scans total</span><b id="stat-scans">-</b></div>
+        <div class="stat"><span>Findings total</span><b id="stat-findings">-</b></div>
+        <div class="stat"><span>Score moyen</span><b id="stat-score">-</b></div>
+      </div>
+
+      <h2>📄 Rapports generes</h2>
+      <div class="card" id="reports-list">
+        <div style="color: #8b949e;">Chargement...</div>
+      </div>
+    </div>
+
+    <div>
+      <h2>⚡ Progression temps reel</h2>
+      <div class="card" id="phases">
+        <div style="color: #8b949e;">En attente de scan...</div>
+      </div>
+
+      <h2>📝 Journal</h2>
+      <div class="card" id="events">
+        <div style="color: #8b949e;">Aucun evenement.</div>
+      </div>
+
+      <h2>🔍 Findings detectes</h2>
+      <div class="card" id="live-findings">
+        <div style="color: #8b949e;">Aucun finding.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const socket = io();
+
+const PHASES = ['red','web','network','stealth','exploit','critic',
+                'risk','blue','purple','code','cloud','compliance'];
+
+const phaseState = {};
+
+function setStatus(state, text) {
+  const b = document.getElementById('status-badge');
+  b.className = 'status ' + state;
+  b.textContent = state === 'running' ? 'Running' :
+                  state === 'error' ? 'Error' : 'Idle';
+  document.getElementById('status-text').textContent = text || '';
+}
+
+function renderPhases() {
+  const el = document.getElementById('phases');
+  el.innerHTML = '';
+  for (const name of PHASES) {
+    const state = phaseState[name] || 'idle';
+    const div = document.createElement('div');
+    div.className = 'phase ' + state;
+    const icon = state === 'done' ? '✓' :
+                 state === 'active' ? '⟳' : '○';
+    div.textContent = icon + ' ' + name.toUpperCase();
+    el.appendChild(div);
+  }
+}
+
+function addLog(text, cls = '') {
+  const el = document.getElementById('events');
+  if (el.querySelector('div[style]')) el.innerHTML = '';
+  const div = document.createElement('div');
+  div.className = 'log-line ' + cls;
+  const ts = new Date().toLocaleTimeString();
+  div.textContent = `[${ts}] ${text}`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+function addFinding(f) {
+  const el = document.getElementById('live-findings');
+  if (el.querySelector('div[style]')) el.innerHTML = '';
+  const div = document.createElement('div');
+  div.className = 'finding ' + (f.severity || 'low');
+  const detail = f.url || f.file || f.header || f.port || '';
+  div.innerHTML = `<b>${f.type || '?'}</b>
+    <span style="color:#8b949e">[${f.severity || '?'}]</span>
+    ${detail ? ' — ' + detail : ''}`;
+  el.insertBefore(div, el.firstChild);
+}
+
+function resetAll() {
+  for (const k in phaseState) delete phaseState[k];
+  document.getElementById('live-findings').innerHTML =
+    '<div style="color: #8b949e;">Aucun finding.</div>';
+  renderPhases();
+}
+
+socket.on('scan_event', (ev) => {
+  const t = ev.type, d = ev.data;
+  console.log('event', t, d);
+
+  if (t === 'connected') {
+    addLog('Dashboard connecte', 'ok');
+  } else if (t === 'scan_started') {
+    resetAll();
+    setStatus('running', `Scan de ${d.target}`);
+    addLog(`Scan demarre sur ${d.target}`, 'ok');
+  } else if (t === 'phase_started') {
+    phaseState[d.agent] = 'active';
+    renderPhases();
+    addLog(`Phase ${d.agent.toUpperCase()} demarree`);
+  } else if (t === 'phase_done') {
+    phaseState[d.agent] = 'done';
+    renderPhases();
+    addLog(`Phase ${d.agent.toUpperCase()} terminee`, 'ok');
+  } else if (t === 'findings') {
+    addLog(`${d.agent.toUpperCase()} : ${d.count} finding(s)`);
+    (d.items || []).forEach(addFinding);
+  } else if (t === 'synthesis') {
+    addLog(`Synthese : score ${d.data.score}/100`, 'ok');
+  } else if (t === 'scan_done') {
+    setStatus('idle', `Score final : ${d.score}/100`);
+    addLog(`Scan termine. Score : ${d.score}/100`, 'ok');
+    loadReports();
+    loadStats();
+  } else if (t === 'scan_error') {
+    setStatus('error', d.error);
+    addLog(`ERREUR : ${d.error}`, 'err');
+  } else if (t === 'scope_check') {
+    addLog(`Verification scope : ${d.target}`);
+  }
+});
+
+document.getElementById('btn-scan').onclick = async () => {
+  const target = document.getElementById('target').value.trim();
+  const objective = document.getElementById('objective').value.trim() ||
+                    'Audit complet de securite';
+  const mode = document.getElementById('mode').value;
+  if (!target) return;
+  document.getElementById('scan-error').textContent = '';
+  try {
+    const r = await fetch('/api/scan/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target, objective, mode })
+    });
+    const data = await r.json();
+    if (data.error) {
+      document.getElementById('scan-error').textContent = data.error;
+    }
+  } catch (e) {
+    document.getElementById('scan-error').textContent = e.message;
+  }
+};
+
+async function loadStats() {
+  try {
+    const r = await fetch('/api/scans');
+    const scans = await r.json();
+    document.getElementById('stat-scans').textContent = scans.length;
+    const findingsRes = await fetch('/api/findings');
+    const findings = await findingsRes.json();
+    document.getElementById('stat-findings').textContent = findings.length;
+    if (scans.length) {
+      const avg = scans.reduce((s, x) => s + (x.score || 0), 0) / scans.length;
+      document.getElementById('stat-score').textContent = avg.toFixed(1) + '/100';
+    } else {
+      document.getElementById('stat-score').textContent = '-';
+    }
+  } catch (e) { console.error(e); }
+}
+
+async function loadReports() {
+  try {
+    const r = await fetch('/api/reports');
+    const reports = await r.json();
+    const el = document.getElementById('reports-list');
+    if (!reports.length) {
+      el.innerHTML = '<div style="color:#8b949e">Aucun rapport.</div>';
+      return;
+    }
+    el.innerHTML = reports.map(rep => `
+      <div class="report-item">
+        <a href="${rep.url}" target="_blank">${rep.name}</a>
+        <span style="color:#8b949e; font-size:0.85em;">
+          ${(rep.size/1024).toFixed(1)} Ko
+        </span>
+      </div>
+    `).join('');
+  } catch (e) { console.error(e); }
+}
+
+async function loadStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const s = await r.json();
+    if (s.running) setStatus('running', `Scan en cours : ${s.current_scan?.target}`);
+    else setStatus('idle', '');
+  } catch (e) {}
+}
+
+// Init
+renderPhases();
+loadStats();
+loadReports();
+loadStatus();
+setInterval(loadStatus, 5000);
+</script>
+
+</body>
+</html>
